@@ -7,13 +7,13 @@
 #' processing.
 #'
 #' You can add a user dictionary to \code{user_dic}. It should be compiled by
-#' \code{mecab-dict-index}. You can find an explatation about compiling a user
+#' \code{mecab-dict-index}. You can find an explanation about compiling a user
 #' dictionary in the \url{https://github.com/junhewk/RcppMeCab}.
 #'
 #' You can also set a system dictionary especially if you are using multiple
 #' dictionaries (for example, using both IPA and Juman dictionary at the same time in Japanese)
 #' in \code{sys_dic}. Using \code{options(mecabSysDic=)}, you can set your
-#' prefered system dictionary to the R terminal.
+#' preferred system dictionary to the R terminal.
 #'
 #' If you want to get a morpheme only, use \code{join = False} to put tag names on the attribute.
 #' Basically, the function will return a list of character vectors with (morpheme)/(tag) elements.
@@ -21,10 +21,13 @@
 #' @param sentence A character vector of any length. For analyzing multiple sentences, put them in one character vector.
 #' @param join A bool to decide the output format. The default value is TRUE. If FALSE, the function will return morphemes only, and tags put in the attribute. if \code{format="data.frame"}, then this will be ignored.
 #' @param format A data type for the result. The default value is "list". You can set this to "data.frame" to get a result as data frame format.
+#' @param lang Optional language code (\code{"ja"}, \code{"ko"}, or \code{"zh"})
+#'   to select a dictionary installed via \code{\link{download_dic}}. When
+#'   specified, this overrides \code{sys_dic}.
 #' @param sys_dic A location of system MeCab dictionary. The default value is "".
 #' @param user_dic A location of user-specific MeCab dictionary. The default value is "".
-#' @return A string vector of POS tagged morpheme will be returned in conjoined character
-#'  vecter form. Element name of the list are original phrases
+#' @return A string vector or a list of POS tagged morpheme will be returned in conjoined character
+#'  vector form.
 #'
 #' @examples
 #' \dontrun{
@@ -32,13 +35,14 @@
 #' pos(sentence)
 #' pos(sentence, join = FALSE)
 #' pos(sentence, format = "data.frame")
-#' pos(sentence, user_dic = "~/user_dic.dic")
-#' # System dictionary example: in case of using mecab-ipadic-NEologd
-#' pos(sentence, sys_dic = "/usr/local/lib/mecab/dic/mecab-ipadic-neologd/")
+#' pos(sentence, lang = "ja")
+#' pos(sentence, lang = "ko")
+#' pos(sentence, sys_dic = "/path/to/custom/dic")
+#' pos(sentence, user_dic = "/path/to/user.dic")
 #' }
 #'
 #' @export
-pos <- function(sentence, join = TRUE, format = c("list", "data.frame"), sys_dic = "", user_dic = "") {
+pos <- function(sentence, join = TRUE, format = c("list", "data.frame"), lang = NULL, sys_dic = "", user_dic = "") {
   if (typeof(sentence) != "character") {
     if (typeof(sentence) == "factor") {
       stop("The type of input sentence is a factor. Please typesetting it with as.character().")
@@ -47,7 +51,11 @@ pos <- function(sentence, join = TRUE, format = c("list", "data.frame"), sys_dic
     }
   }
 
-  if (!is.null(getOption("mecabSysDic")) && !sys_dic == "") sys_dic = getOption("mecabSysDic")
+  if (!is.null(lang)) {
+    sys_dic <- .resolve_dic(match.arg(lang, c("ja", "ko", "zh")))
+  } else if (!is.null(getOption("mecabSysDic")) && sys_dic == "") {
+    sys_dic <- getOption("mecabSysDic")
+  }
 
   format = match.arg(format)
 

@@ -3,47 +3,36 @@
 #include <Rcpp.h>
 #include <string>
 #include <boost/algorithm/string.hpp>
-#include "mecab.h"
+#include "../inst/include/mecab.h"
 
 using namespace Rcpp;
 
-#define CHECK(eval) if (! eval) {                                   \
-Rcpp::Rcerr << "Exception: " << mecab_strerror(mecab) << std::endl; \
-mecab_destroy(mecab);                                               \
-return R_NilValue; }
-
+// [[Rcpp::interfaces(r, cpp)]]
 // [[Rcpp::export]]
-List posRcpp(std::string text, std::string sys_dic, std::string user_dic) {
+CharacterVector posRcpp(std::string text, std::string sys_dic, std::string user_dic) {
 
-  // basic MeCab tagger
-
-  mecab_t* mecab;
-  const mecab_node_t* node;
-
-  std::vector<std::string> args;
-  args.push_back("mecab");
-  if (sys_dic != "") {
-    args.push_back("-d");
-    args.push_back(sys_dic);
+  std::vector<std::string> arguments = {"mecab"};
+  if (!sys_dic.empty()) {
+    arguments.push_back("-r"); arguments.push_back(sys_dic + "/dicrc");
+    arguments.push_back("-d"); arguments.push_back(sys_dic);
   }
-  if (user_dic != "") {
-    args.push_back("-u");
-    args.push_back(user_dic);
-  }
+  if (!user_dic.empty()) { arguments.push_back("-u"); arguments.push_back(user_dic); }
 
-  char** argv_model = new char*[args.size()];
-  for(size_t i = 0; i < args.size(); ++i) {
-    argv_model[i] = new char[args[i].size() + 1];
-    std::strcpy(argv_model[i], args[i].c_str());
-  }
+  std::vector<char*> argv;
+  for (auto& arg : arguments)
+    argv.push_back(&arg[0]);
+  argv.push_back(nullptr);
 
-  // Create MeCab object
-  mecab = mecab_new(args.size(), argv_model);
-  CHECK(mecab);
+  // Create MeCab tagger
+  MeCab::Tagger *tagger = MeCab::createTagger(argv.size() - 1, argv.data());
+  if (!tagger) {
+    Rcerr << "model is NULL" << std::endl;
+    delete tagger;
+    return R_NilValue;
+  }
 
   // Create Node object
-  node = mecab_sparse_tonode(mecab, text.c_str());
-  CHECK(node);
+  const MeCab::Node* node = tagger->parseToNode(text.c_str());
 
   List result;
   StringVector parsed_string;
@@ -67,55 +56,39 @@ List posRcpp(std::string text, std::string sys_dic, std::string user_dic) {
   }
 
   parsed_string.names() = tags;
-  result.push_back(parsed_string);
 
-  String result_name;
-  result_name.push_back(text);
-  result_name.set_encoding(CE_UTF8);
-  result.names() = result_name;
+  delete tagger;
 
-  for(size_t i = 0; i < args.size(); i++){
-    delete [] argv_model[i];
-  }
-  delete [] argv_model;
-  mecab_destroy(mecab);
-
-  return result;
+  return parsed_string;
 }
 
+// [[Rcpp::interfaces(r, cpp)]]
 // [[Rcpp::export]]
-List posJoinRcpp(std::string text, std::string sys_dic, std::string user_dic) {
+StringVector posJoinRcpp(std::string text, std::string sys_dic, std::string user_dic) {
 
-  // basic MeCab tagger
-  mecab_t* mecab;
-  const mecab_node_t* node;
-
-  std::vector<std::string> args;
-  args.push_back("mecab");
-  if (sys_dic != "") {
-    args.push_back("-d");
-    args.push_back(sys_dic);
+  std::vector<std::string> arguments = {"mecab"};
+  if (!sys_dic.empty()) {
+    arguments.push_back("-r"); arguments.push_back(sys_dic + "/dicrc");
+    arguments.push_back("-d"); arguments.push_back(sys_dic);
   }
-  if (user_dic != "") {
-    args.push_back("-u");
-    args.push_back(user_dic);
-  }
+  if (!user_dic.empty()) { arguments.push_back("-u"); arguments.push_back(user_dic); }
 
-  char** argv_model = new char*[args.size()];
-  for(size_t i = 0; i < args.size(); ++i) {
-    argv_model[i] = new char[args[i].size() + 1];
-    std::strcpy(argv_model[i], args[i].c_str());
-  }
+  std::vector<char*> argv;
+  for (auto& arg : arguments)
+    argv.push_back(&arg[0]);
+  argv.push_back(nullptr);
 
-  // Create MeCab object
-  mecab = mecab_new(args.size(), argv_model);
-  CHECK(mecab);
+  // Create MeCab tagger
+  MeCab::Tagger *tagger = MeCab::createTagger(argv.size() - 1, argv.data());
+  if (!tagger) {
+    Rcerr << "model is NULL" << std::endl;
+    delete tagger;
+    return R_NilValue;
+  }
 
   // Create Node object
-  node = mecab_sparse_tonode(mecab, text.c_str());
-  CHECK(node);
+  const MeCab::Node* node = tagger->parseToNode(text.c_str());
 
-  List result;
   StringVector parsed_string;
 
   for (; node; node = node->next) {
@@ -134,16 +107,7 @@ List posJoinRcpp(std::string text, std::string sys_dic, std::string user_dic) {
     }
   }
 
-  result.push_back(parsed_string);
-  String result_name = text;
-  result_name.set_encoding(CE_UTF8);
-  result.names() = result_name;
+  delete tagger;
 
-  for(size_t i = 0; i < args.size(); i++){
-    delete [] argv_model[i];
-  }
-  delete [] argv_model;
-  mecab_destroy(mecab);
-
-  return result;
+  return parsed_string;
 }

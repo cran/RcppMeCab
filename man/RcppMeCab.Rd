@@ -2,8 +2,8 @@
 % Please edit documentation in R/RcppMeCab-package.r
 \docType{package}
 \name{RcppMeCab}
-\alias{RcppMeCab}
 \alias{RcppMeCab-package}
+\alias{RcppMeCab}
 \title{RcppMeCab: Rcpp Wrapper for MeCab Library}
 \description{
 R package based on \code{Rcpp} for \code{MeCab}: Yet Another Part-of-Speech and
@@ -19,9 +19,16 @@ This package utilizes \code{MeCab} C API and \code{Rcpp} codes.
 \references{
 \itemize{
 \item{\href{http://taku910.github.io/mecab/}{MeCab}}
-\item{\href{http://www.rcpp.org}{Rcpp: Seamless R and C++ Integration}}
+\item{\href{https://www.rcpp.org/}{Rcpp: Seamless R and C++ Integration}}
 \item{\href{http://eunjeon.blogspot.com}{Eunjeon project}}
 }
+}
+\seealso{
+Useful links:
+\itemize{
+  \item Report bugs at \url{https://github.com/junhewk/RcppMeCab/issues}
+}
+
 }
 \author{
 Junhewk Kim Taku Kudo

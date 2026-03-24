@@ -1,0 +1,224 @@
+#!/bin/sh
+# configure script for RcppMeCab
+# Detects MeCab installation or builds from source
+
+# Find mecab-config
+MECAB_CONFIG=""
+
+if command -v mecab-config >/dev/null 2>&1; then
+  MECAB_CONFIG="mecab-config"
+fi
+
+# Check Homebrew paths on macOS
+if [ -z "$MECAB_CONFIG" ]; then
+  for prefix in /opt/homebrew /usr/local; do
+    if [ -x "$prefix/bin/mecab-config" ]; then
+      MECAB_CONFIG="$prefix/bin/mecab-config"
+      break
+    fi
+  done
+fi
+
+if [ -n "$MECAB_CONFIG" ]; then
+  echo "Found mecab-config at: $MECAB_CONFIG"
+
+  MECAB_CFLAGS=$($MECAB_CONFIG --cflags)
+  MECAB_LIBS=$($MECAB_CONFIG --libs)
+else
+  echo "mecab-config not found. Building MeCab from source..."
+
+  PKG_DIR="$(pwd)"
+  MECAB_BUILD_DIR="${PKG_DIR}/src/mecab_build"
+  MECAB_INSTALL_DIR="${PKG_DIR}/src/mecab_local"
+
+  MECAB_LANG="${MECAB_LANG:-ko}"
+  if [ "$MECAB_LANG" = "ja" ]; then
+    MECAB_SRC_URL="https://github.com/taku910/mecab/archive/61b90ba6e669dc2d7d533d4a80d206f3b31d52b1.tar.gz"
+    echo "Building MeCab (Japanese, taku910/mecab 0.996) from source..."
+  else
+    MECAB_SRC_URL="https://github.com/Pusnow/mecab-ko-msvc/archive/refs/tags/release-0.999.tar.gz"
+    echo "Building MeCab-Ko (Korean, mecab-ko 0.999) from source..."
+  fi
+
+  MECAB_TARBALL="$MECAB_BUILD_DIR/mecab-source.tar.gz"
+
+  mkdir -p "$MECAB_BUILD_DIR"
+
+  echo "Downloading MeCab source..."
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL "$MECAB_SRC_URL" -o "$MECAB_TARBALL"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -q "$MECAB_SRC_URL" -O "$MECAB_TARBALL"
+  else
+    echo "ERROR: Neither curl nor wget found. Cannot download MeCab source."
+    exit 1
+  fi
+
+  if [ ! -f "$MECAB_TARBALL" ]; then
+    echo "ERROR: Failed to download MeCab source."
+    exit 1
+  fi
+
+  echo "Extracting MeCab source..."
+  tar xzf "$MECAB_TARBALL" -C "$MECAB_BUILD_DIR" --strip-components=1 || {
+    echo "ERROR: Failed to extract MeCab source."
+    exit 1
+  }
+
+  # taku910/mecab extracts to mecab_build/mecab/; mecab-ko-msvc extracts flat
+  if [ -d "$MECAB_BUILD_DIR/mecab" ] && [ -f "$MECAB_BUILD_DIR/mecab/configure" ]; then
+    MECAB_SRC_DIR="$MECAB_BUILD_DIR/mecab"
+  else
+    MECAB_SRC_DIR="$MECAB_BUILD_DIR"
+  fi
+
+  if [ ! -f "$MECAB_SRC_DIR/configure" ]; then
+    echo "ERROR: MeCab configure script not found at $MECAB_SRC_DIR/configure"
+    exit 1
+  fi
+
+  # mecab-ko-msvc configure expects src/Makefile.msvc.in; create stub if missing
+  if [ ! -f "$MECAB_SRC_DIR/src/Makefile.msvc.in" ]; then
+    touch "$MECAB_SRC_DIR/src/Makefile.msvc.in"
+  fi
+
+  # Patch MeCab source for R compatibility:
+  # Avoid exit(), stdout, stderr, printf, sprintf which R CMD check forbids.
+  echo "Patching MeCab source for R compatibility..."
+  SRCDIR="$MECAB_SRC_DIR/src"
+
+  # Create a compatibility header that redirects problematic calls
+  cat > "$SRCDIR/mecab_r_compat.h" << 'COMPAT_EOF'
+#ifndef MECAB_R_COMPAT_H_
+#define MECAB_R_COMPAT_H_
+#include <iostream>
+#include <cstdio>
+// Null output stream that inherits from std::ostream for full compatibility
+class MeCabNullBuf : public std::streambuf {
+protected:
+  int overflow(int c) { return c; }
+};
+static MeCabNullBuf mecab_null_buf_;
+static std::ostream mecab_null_os_(&mecab_null_buf_);
+#endif
+COMPAT_EOF
+
+  # Add compat header include, replace std::cerr/std::cout, and apply per-file fixes
+  for f in "$SRCDIR"/*.cpp "$SRCDIR"/*.h; do
+    case "$f" in */mecab_r_compat.h) continue;; esac
+    sed -i.bak '1i\
+#include "mecab_r_compat.h"
+s/std::cerr/mecab_null_os_/g; s/std::cout/mecab_null_os_/g' "$f"
+  done
+
+  # Per-file patches (run once each, after the loop)
+  # common.h: remove exit() from die class destructor
+  # utils.h: sprintf -> snprintf
+  # utils.cpp: gut progress_bar body to avoid printf/stdout
+  # eval.cpp: sprintf -> snprintf
+  sed -i.bak '/^class die/,/^};/ { /exit(-1);/d; }' "$SRCDIR/common.h"
+  sed -i.bak 's/std::sprintf(s, "%-16f", val)/std::snprintf(s, sizeof(s), "%-16f", val)/' "$SRCDIR/utils.h"
+  sed -i.bak '/^int progress_bar/,/^}/ { /^int progress_bar/!{ /^}/!d; }; /^int progress_bar/a\
+  return 1;
+  }' "$SRCDIR/utils.cpp"
+  sed -i.bak 's/sprintf(buf\.get(),/snprintf(buf.get(), 256,/' "$SRCDIR/eval.cpp"
+  rm -f "$SRCDIR"/*.bak
+
+  echo "Configuring MeCab..."
+  cd "$MECAB_SRC_DIR"
+  # MeCab source uses 'register' keyword which is an error in C++17;
+  # force C++14 and suppress deprecation warnings for the MeCab build.
+  # Unset R's CXX/CXXFLAGS to prevent R's C++17 standard from leaking in.
+  CXX="c++" CXXFLAGS="-std=c++14 -Wno-deprecated-declarations -O2 -fPIC" \
+  ./configure --with-charset=utf8 --enable-utf8-only --prefix="$MECAB_INSTALL_DIR" --enable-static --disable-shared --with-pic > mecab_configure.log 2>&1
+  if [ $? -ne 0 ]; then
+    echo "ERROR: MeCab configure failed. See $MECAB_SRC_DIR/mecab_configure.log"
+    exit 1
+  fi
+
+  echo "Building MeCab..."
+  make > mecab_make.log 2>&1
+  if [ $? -ne 0 ]; then
+    echo "ERROR: MeCab build failed. See $MECAB_SRC_DIR/mecab_make.log"
+    exit 1
+  fi
+
+  echo "Installing MeCab locally..."
+  make install > mecab_install.log 2>&1
+  if [ $? -ne 0 ]; then
+    echo "ERROR: MeCab install failed. See $MECAB_SRC_DIR/mecab_install.log"
+    exit 1
+  fi
+
+  cd "$PKG_DIR"
+
+  # Download and install dictionary into inst/dic/
+  MECAB_DIC_DIR="${PKG_DIR}/inst/dic"
+  mkdir -p "$MECAB_DIC_DIR"
+
+  if [ "$MECAB_LANG" = "ja" ]; then
+    echo "Compiling IPAdic (Japanese) dictionary..."
+    # ipadic source is in the same taku910/mecab archive we already downloaded
+    # Re-download since we may have cleaned up; extract only mecab-ipadic/
+    DIC_BUILD_DIR="${PKG_DIR}/src/dic_build"
+    mkdir -p "$DIC_BUILD_DIR"
+    DIC_TARBALL="$DIC_BUILD_DIR/mecab-source.tar.gz"
+    curl -fsSL "$MECAB_SRC_URL" -o "$DIC_TARBALL" || wget -q "$MECAB_SRC_URL" -O "$DIC_TARBALL"
+    tar xzf "$DIC_TARBALL" -C "$DIC_BUILD_DIR" --strip-components=1
+    IPADIC_DIR="$DIC_BUILD_DIR/mecab-ipadic"
+
+    DICT_INDEX="$MECAB_INSTALL_DIR/libexec/mecab/mecab-dict-index"
+    if [ ! -x "$DICT_INDEX" ]; then
+      DICT_INDEX="$MECAB_INSTALL_DIR/bin/mecab-dict-index"
+    fi
+
+    "$DICT_INDEX" \
+      -d "$IPADIC_DIR" \
+      -o "$MECAB_DIC_DIR" \
+      -f euc-jp -t utf-8 > /dev/null 2>&1
+    if [ $? -ne 0 ]; then
+      echo "WARNING: Failed to compile IPAdic dictionary. Package will work but needs manual dictionary setup."
+    else
+      # Copy dicrc and .def files needed at runtime
+      cp "$IPADIC_DIR/dicrc" "$MECAB_DIC_DIR/" 2>/dev/null
+      echo "IPAdic dictionary compiled to: $MECAB_DIC_DIR"
+    fi
+    rm -rf "$DIC_BUILD_DIR"
+  else
+    echo "Downloading pre-compiled mecab-ko-dic..."
+    DIC_URL="https://github.com/Pusnow/mecab-ko-msvc/releases/download/release-0.999/mecab-ko-dic.tar.gz"
+    DIC_TARBALL="/tmp/mecab-ko-dic-$$.tar.gz"
+    curl -fsSL "$DIC_URL" -o "$DIC_TARBALL" || wget -q "$DIC_URL" -O "$DIC_TARBALL"
+    if [ -f "$DIC_TARBALL" ]; then
+      tar xzf "$DIC_TARBALL" -C "$MECAB_DIC_DIR" --strip-components=1
+      rm -f "$DIC_TARBALL"
+      echo "mecab-ko-dic installed to: $MECAB_DIC_DIR"
+    else
+      echo "WARNING: Failed to download mecab-ko-dic. Package will work but needs manual dictionary setup."
+    fi
+  fi
+
+  # Clean up build artifacts (only keep installed lib and headers)
+  rm -rf "$MECAB_BUILD_DIR"
+
+  MECAB_CFLAGS="-I${MECAB_INSTALL_DIR}/include"
+  MECAB_LIBS="-L${MECAB_INSTALL_DIR}/lib -lmecab"
+
+  echo "MeCab built successfully at: $MECAB_INSTALL_DIR"
+fi
+
+echo "  MECAB_CFLAGS: $MECAB_CFLAGS"
+echo "  MECAB_LIBS:   $MECAB_LIBS"
+
+# Get RcppParallel linker flags
+RCPPPARALLEL_LIBS=$("${R_HOME}/bin/Rscript" -e "cat(RcppParallel::RcppParallelLibs())")
+
+echo "  RCPPPARALLEL_LIBS: $RCPPPARALLEL_LIBS"
+
+# Generate src/Makevars from src/Makevars.in
+sed -e "s|@MECAB_CFLAGS@|${MECAB_CFLAGS}|" \
+    -e "s|@MECAB_LIBS@|${MECAB_LIBS}|" \
+    -e "s|@RCPPPARALLEL_LIBS@|${RCPPPARALLEL_LIBS}|" \
+    src/Makevars.in > src/Makevars
+
+echo "Configuration complete."
