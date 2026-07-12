@@ -1,6 +1,6 @@
 Package: RcppMeCab
 Title: 'rcpp' Wrapper for 'mecab' Library
-Version: 0.0.1.5
+Version: 0.0.1.6
 Authors@R: c(person("Junhewk", "Kim", role = c("aut", "cre"),
                     email = "junhewk.kim@gmail.com"),
              person("Taku", "Kudo", role = c("aut"),
@@ -17,6 +17,7 @@ Encoding: UTF-8
 BugReports: https://github.com/junhewk/RcppMeCab/issues
 RoxygenNote: 7.3.3
 Language: en-US
+Config/roxygen2/version: 8.0.0
 LinkingTo: Rcpp, RcppParallel, BH
 Imports: Rcpp, RcppParallel
 Suggests: testthat, spelling
@@ -24,11 +25,11 @@ SystemRequirements: MeCab 0.996 or higher for Japanese (libmecab-dev
         (deb), mecab-devel (rpm)), mecab-ko 0.999
         (https://github.com/Pusnow/mecab-ko-msvc) for Korean
 NeedsCompilation: yes
-Packaged: 2026-03-24 05:41:08 UTC; jk
+Packaged: 2026-07-12 10:55:05 UTC; jk
 Author: Junhewk Kim [aut, cre],
   Taku Kudo [aut],
   Akiru Kato [ctb],
   Patrick Schratz [ctb]
 Maintainer: Junhewk Kim <junhewk.kim@gmail.com>
 Repository: CRAN
-Date/Publication: 2026-03-24 06:00:02 UTC
+Date/Publication: 2026-07-12 12:00:02 UTC
